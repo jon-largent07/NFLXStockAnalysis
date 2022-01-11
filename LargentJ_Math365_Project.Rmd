@@ -1,0 +1,594 @@
+---
+title: "LargentJ_Math365_Project"
+author: "Jonathan Largent"
+output:
+  html_document:
+    theme: sandstone
+    highlight: zenburn
+    toc: yes
+    toc_float: yes
+    toc_depth: 2
+    df_print: kable
+    code_download: yes
+    code_folding: hide
+---
+
+
+```{r message=FALSE, warning=FALSE}
+#Libraries
+library("TSA")
+library("leaps")
+library("locfit")
+library("mgcv")
+library("tseries")
+library("uroot")
+library("xts")
+library("ggplot2")
+library(forecast)
+```
+
+
+# Initial Exploratory Analysis
+```{r}
+NFLX = read.csv("NFLX.csv")
+```
+
+
+### Dimensions, Names, and Summary
+```{r}
+dim(NFLX)
+names(NFLX)
+summary(NFLX)
+head(NFLX)
+```
+
+We can see that there are seven variables present in this data. The time is business days that the stock market is open and running, starting in May 2002(23rd to be specific) and going until September 2021(9th). This data goes through the economic crash in 2008 as well as the fall of most blockbuster type stores where people went inside and got physical copies of media. This captures the rise of Netflix all the way through the pandemic that occurred in the years 2020 and 2021. This data also includes the opening price every morning of the stock price, the highest and lowest price throughout the day. Also including the closing price at the end of the day, and the adjusted closing price that accounts for any corporate actions during the day.
+
+```{r}
+NFLX$Date = as.Date(NFLX$Date)
+NFLX.ts = xts(NFLX$Open, NFLX$Date)
+```
+
+### Initial Time Series
+```{r}
+plot(NFLX.ts, ylab = "Opening Price", xlab = "Time in Days(May 2002- Sep 2021)", main = "Opening Price of Netflix(First 2 Decades of 2000s)")
+```
+
+# Project Plan
+Looking around 2008, this is the time period that the United States stock market crashed, I plan on looking and analyzing this time series. Trying to estimate parameter values and assess what is the best model for this time series at that section and finally, projecting and looking forward to see how well the model predicts the future time series(information that we do have in this data set).
+
+Then hopefully, I would like to look at the year of 2020 and see the changes of the stock prices through that year. Specifically because the pandemic brought an increase to Netflix watch time that year. I would also like to do the same thing estimating and predicting the parameter values and deciding what model is the best fit for the time series. Then predicting again, on the data that we have available.
+
+After making both predictions, looking to see if the models changed for the different subsets of the Netflix data, but also to see if there was a difference in the accuracy of the predictions.
+
+***
+# Data Manipulation
+
+### Subsetting Data:
+```{r}
+NFLX_Crash = NFLX[1393:1665, c(1:2)]
+
+NFLX_Covid = NFLX[4434:4724, c(1:2)]
+
+
+NFLX_Crash$Date = as.Date(NFLX_Crash$Date)
+Crash.ts = xts(NFLX_Crash$Open, NFLX_Crash$Date)
+
+NFLX_Covid$Date = as.Date(NFLX_Covid$Date)
+Covid.ts = xts(NFLX_Covid$Open, NFLX_Covid$Date)
+
+```
+In order to move forward the data must be partitioned. For the market crash time period, December 2007 to December 2008 will be used to capture and estimate an appropriate model for forecasting. Looking at the 2020 pandemic, January 2020 to February 2021, will be used.
+
+***
+# Results {.tabset .tabset-pills}
+
+## Netflix Market Crash Time Series
+
+***
+### Exploratory Analysis
+```{r}
+plot(Crash.ts, ylab = "Opening Price", xlab = "Time in Days(Dec 2007- Dec 2007)", main = "Opening Price of Netflix(Market Crash of 2008)")
+```
+
+This time series has a lot of variation present, there are a few local trends throughout the data, but not an overall one. In an attempt to make this stationary I am going to try and do a logarithmic transformation to begin with and see how well that helps the data.
+
+```{r}
+plot(log(Crash.ts))
+plot(diff(log(Crash.ts)))
+plot(diff(Crash.ts))
+plot(diff(diff(Crash.ts)))
+plot(diff(diff(diff(Crash.ts))))
+```
+
+Taking the difference of the log was beneficial as well, so I have gone ahead and done that. This time series of the 2008 stock market crash now appears to be stationary and is good to continue further analysis with.
+
+```{r}
+Crash_TS = na.omit(diff(diff(Crash.ts)))
+adf.test(Crash_TS, alternative = 'stationary', k = 0)
+```
+
+Based on the negative Dickey-Fuller value and small p-value it can be concluded that there is statistical evidence that this time series data is stationary.
+
+### Model Specification
+```{r}
+acf(Crash_TS,lag.max=20, xaxt="n", ci.type = 'ma', main="ACF for Crash Time Series")
+```
+
+Looking at this ACF plot there is a significant values at the first lag indicating that an MA1 model could be a good fit for the second difference. There appears to be a few lag values that are almost significant, but due to the lack of significant values around them, these will be overlooked moving forward.
+
+```{r}
+pacf(Crash_TS, lag.max = 20, main="Partial ACF for Crash Time Series")
+```
+
+Looking at the PACF plot there is significance in the lag values up until 11, lag 10 could be argued as insignificant, but due to the significance before and after I am choosing to overlook this as it is also relatively close to the standard error as well. There are a few other significant values present, but due to no significance near them, these will be overlooked. There will be tests done on MA2 and AR11 moving forward.
+
+```{r}
+eacf(Crash_TS, ar = 10, ma = 10)
+```
+
+Looking at the EACF plot there appears to be a model option of p=2 and q=3.
+
+```{r}
+best.Cr=armasubsets(y=Crash_TS, nar=10, nma=10, y.name='test', ar.method='ols')
+plot(best.Cr)
+```
+
+The previous model found can also be found as the number one pick looking at the BIC plot. This adds to our confidence in testing this model further.
+
+```{r}
+Models = c('MA(1)', 'MA(3)', 'AR(11)', 'ARMA(2,3)')
+```
+
+### Parameter Calculations
+```{r}
+Cr.MA1 = arima(Crash_TS,order=c(0,0,1),method='ML')
+Cr.MA1
+```
+
+Based on these calculations it can be seen that the theta values are predicted as -1.000, these are significant regarding the standard error that is present as well. The mean of this time series is also estimated to be 0.
+
+```{r}
+Cr.MA3 = arima(Crash_TS,order=c(0,0,3),method='ML')
+Cr.MA3
+```
+
+Looking at this summary output there appears to be more support for for MA1 than for MA3, as the estimations suggest that theta2 and theta3 are insignificant.
+
+```{r}
+Cr.ARMA23 = arima(Crash_TS, order=c(2,0,3), method='ML')
+Cr.ARMA23
+```
+
+Looking at this mixed model, it can be seen that all values appear to be significant towards this data.
+
+```{r}
+Cr.AR11 = arima(Crash_TS, order=c(11,0,0), method='ML')
+Cr.AR11
+```
+
+Looking through all of these estimated phi values we can see that they are all significant. This can be seen through two times the standard error producing a confidence interval that doesn't include zero. The mean once again appears to be zero in this instance.
+
+```{r}
+aic = c('-208.24', '-204.49', '-183.01', '-212.73')
+```
+
+### Model Diagnostics
+
+#### Normality
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cr.MA1),main='Standardized Residuals (0,0,1)')
+
+qqnorm(residuals(Cr.MA1), main='Residuals (0,0,1)')
+qqline(residuals(Cr.MA1))
+```
+
+This histogram appears to be normal based on it being unimodal and not containing any skews to the right or left. Looking at the qq-plot, more deviation can be seen at the edges of the graph which would suggest this model might lack normality.
+
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cr.MA3),main='Standardized Residuals (0,0,3)')
+
+qqnorm(residuals(Cr.MA3), main='Residuals (0,0,3)')
+qqline(residuals(Cr.MA3))
+```
+
+While the histogram appears to be of a normal distribution, the qq-plot has a pretty significant breach from normality, this would suggest that this model isn't normal, but more robust analysis will be done later.
+
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cr.AR11),main='Standardized Residuals (11,0,0)')
+
+qqnorm(residuals(Cr.AR11), main='Residuals (11,0,0)')
+qqline(residuals(Cr.AR11))
+```
+
+For the AR11 model, we can see that the histogram appears normal again, as it is unimodal and not skewed to the right or left. The qq-plot looks to follow normality with less deviation than the previous model. There is still some deviation towards the right end of the graph, but overall this is of smaller magnitude than the MA1 model was.
+
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cr.ARMA23),main='Standardized Residuals (2,0,3)')
+
+qqnorm(residuals(Cr.ARMA23), main='Residuals (2,0,3)')
+qqline(residuals(Cr.ARMA23))
+```
+
+Looking at this mixed model, the histogram appears to have a slight skew to the left and the qq-plot has the large deviations again from the left again. This would indicate that this model is most likely abnormal. Looking at the histogram and the qq-plots are helpful for general guesses at the normality, but utilizing the shapiro-wilk's test below we will have a more statistically significant answer to address the normality.
+
+```{r}
+shapiro.test(rstandard(Cr.MA1))
+```
+
+```{r}
+shapiro.test(rstandard(Cr.MA3))
+```
+
+```{r}
+shapiro.test(rstandard(Cr.AR11))
+```
+
+```{r}
+shapiro.test(rstandard(Cr.ARMA23))
+```
+
+Looking at the outputs for the shapiro-wilks test (Normality test) it can be seen that none of the proposed models appear to be normal. This was determined by observing the statistically small p-value and shows that this model doesn't follow a normal distribution.
+
+```{r}
+Normality = rep('<0.05', 4)
+```
+
+
+#### Independence
+```{r}
+runs(rstandard(Cr.MA1))$pvalue
+```
+
+```{r}
+runs(rstandard(Cr.MA3))$pvalue
+```
+
+```{r}
+runs(rstandard(Cr.AR11))$pvalue
+```
+
+```{r}
+runs(rstandard(Cr.ARMA23))$pvalue
+```
+
+Looking at all the p-values for all three models, it can be seen that there is support for the independence of all the models. 
+
+```{r}
+Independence = c('0.261', '0.265', '0.543', '0.18')
+```
+
+#### Overall Fit
+```{r}
+tsdiag(Cr.MA1, gof=15, omit.initial=F)
+```
+
+Looking at the ljung-box test there are significant p-values at all lag values present. This would suggest that this model is a good fit of the data present. This doesn't however make up for the abnormality of the model that was found in the shapiro-wilks test.
+
+```{r}
+tsdiag(Cr.MA3, gof=15, omit.initial=F)
+```
+
+This ljung-box test would suggest that overall this model is a decent fit for the selected data, but not the best model that is desired.
+
+```{r}
+tsdiag(Cr.AR11, gof=15, omit.initial=F)
+```
+
+The p-values for the AR11 model are also statistically significant and while they come close to the standard error about half way through the model, they also continue to stay significant 
+
+```{r}
+tsdiag(Cr.ARMA23, gof=15, omit.initial=F)
+```
+
+The final, mixed model also appears to be a good fit for the data, looking at the p-values.
+
+```{r}
+Fit = rep('Good', 4)
+```
+
+### Final Market Crash Model
+```{r}
+finMod = data.frame("Models" = Models, "AIC" = aic, "Norm.Test" = Normality, "Ind.Test" = Independence, "Overall.Fit" = Fit)
+finMod
+```
+
+
+Based on all of the information gleaned from the exploratory analysis, an MA1 model and ARMA23 are the models that I would choose. This is largely due to the fact that it had the most statistical evidence for normality of the four models that were tested. This means that the final model would be IMA(2,1) or ARIMA(2,2,3).
+
+### Forecasting
+```{r}
+crash.ts = as.ts(Crash.ts)
+cra = stats::arima(crash.ts, order=c(0,2,1))
+
+cra.df = data.frame(time = time(crash.ts), stock = crash.ts)
+
+ggplot(cra.df[200:273,]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black') +
+  autolayer(forecast(cra), col = "blue", PI = TRUE, show.legend=FALSE) +
+  scale_x_continuous() +
+  scale_y_continuous()
+```
+
+```{r}
+NFLX_Crash2 = NFLX[1393:1675, c(1:2)]
+
+cra.df2 = data.frame(time = time(NFLX_Crash2$Date), stock = NFLX_Crash2$Open)
+
+ggplot(cra.df2[200:273,]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black')
+```
+Comparing these two outputs for the forecasted and actual stock price values, it appears that an IMA(2,1) model was a good fit as the actual values are within the confidence intervals of the predicted values.
+
+```{r}
+crash.ts = as.ts(Crash.ts)
+cra2 = stats::arima(crash.ts, order=c(2,2,3))
+
+cra.df2 = data.frame(time = time(crash.ts), stock = crash.ts)
+
+ggplot(cra.df2[200:273,]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black') +
+  autolayer(forecast(cra2), col = "blue", PI = TRUE, show.legend=FALSE) +
+  scale_x_continuous() +
+  scale_y_continuous()
+```
+
+```{r}
+cra.df2 = data.frame(time = time(NFLX_Crash2$Date), stock = NFLX_Crash2$Open)
+
+ggplot(cra.df2[200:273,]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black')
+```
+
+Looking at the forecasting for the mixed model, there is much more movement and it seems to follow the actual values much closer than the IMA(2,1) model. This makes sense due to the greater flexibility that is provided with a mixed model like this. Moving forward, this would be the suggested model, considering it's not a terribly complex mixed model and does seem to follow the time series more closely.
+
+
+### Final Model Equations
+
+
+$$
+Model~~1:~~Y_t = 2Y_{t-1} - Y_{t-2} + e_t - e_{t-1}
+$$
+$$
+Model~~2:~~Y_t = 0.751Y_{t-1} +0.7154Y_{t-2} +0.3162Y_{t-3} -0.7826Y_{t-4} + e_t + 0.3230e_{t-1} - 0.4069e_{t-2} - 0.9161e_{t-3}
+$$
+
+***
+
+## Netflix COVID-19 Time Series
+***
+### Exploratory Analysis
+```{r}
+plot(Covid.ts, ylab = "Opening Price", xlab = "Time in Days(Jan 2020 - Feb 2021)", main = "Opening Price of Netflix(COVID-19 Pandemic)")
+```
+
+Using the graph above we can note that this time series is not stationary, this can be seen through the upward trend throughout the year of 2020. Fortunately, the variance seems relatively constant, so one difference might solve our problem.
+
+```{r}
+plot(diff(Covid.ts))
+plot(diff(log(Covid.ts)))
+plot(diff(diff(Covid.ts)))
+```
+
+Comparing the difference to the difference of the logs we can see there isn't too much added with the logarithmic transformation. Because of this, I will be continuing to use the first difference for calculations moving forward with this subset of the time series.
+
+
+```{r}
+Covid_TS = na.omit(diff(diff(Covid.ts)))
+adf.test(Covid_TS, alternative = 'stationary', k = 0)
+```
+
+Looking at the negative Dickey-Fuller value and the small p-value it can be seen that there is support for the alternate hypothesis which is that this time series with two differences is stationary.
+
+### Model Specification
+```{r}
+acf(Covid_TS,lag.max=50, xaxt="n", ci.type = 'ma', main="ACF for Covid Time Series")
+```
+
+Looking at this ACF plot it appears that there is a significant lag value at lag1, this would suggest looking into an MA1 model.
+
+```{r}
+pacf(Covid_TS,lag.max = 50, main="Partial ACF for Covid Time Series")
+```
+
+Here, with the assistance of the PACF plot, it can be seen that there is support for an AR12 model. There are a handful of lag values that appear to be insignificant, but due to the amount of significance surrounding them, they will be overlooked. Looking further on the plot, there are a few other significant lags, but none that stand out or suggest a different model type.
+
+```{r}
+eacf(Covid_TS, ar = 10, ma = 10)
+```
+
+Looking at this EACF plot, there is a suggestion for attempting to fit a p=1 and q=1 mixed model.
+
+```{r}
+best.Cov=armasubsets(y=Covid_TS, nar=10, nma=10, y.name='test', ar.method='ols')
+plot(best.Cov)
+```
+
+Finally, looking at the BIC plot there seems to be support for a p=3 q=4 mixed model. For simplicities sake, the smaller model will be checked first, but if for some reason other models need to be assessed, this model will be at the top of that queue.
+
+
+```{r}
+Models2 = c("MA(1)", "AR(12)", 'ARMA(1,1)')
+```
+
+### Parameter Calculations
+```{r}
+Cov.MA1 = arima(Covid_TS,order=c(0,0,1),method='ML')
+Cov.MA1
+```
+
+This output shows that the one parameter that is estimated, theta1, is significant for the model and is estimated to be -0.9999.
+
+```{r}
+Cov.AR12 = arima(Covid_TS,order=c(12,0,0),method='ML')
+Cov.AR12
+```
+
+Moving forward to the AR12 model, it can be seen that all the estimated parameters are of importance. This can be seen by taking two times the standard error to construct a confidence interval that doesn't include zero.
+
+```{r}
+Cov.ARMA11 = arima(Covid_TS,order=c(1,0,1),method='ML')
+Cov.ARMA11
+```
+
+The final model seems to have an insignificant parameter at AR1 indicating that it is not a great model to test. When the AR1 term is excluded, we are left with an MA1 model which is being tested separately. Because of this finding, further model diagnostics will not be calculated for this model.
+
+
+```{r}
+aic2 = c('2285.52', '2315.52', '2286.92')
+```
+
+### Model Diagnostics
+
+#### Normality Tests
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cov.MA1),main='Standardized Residuals (0,0,1)')
+
+qqnorm(residuals(Cov.MA1), main='Residuals (0,0,1)')
+qqline(residuals(Cov.MA1))
+```
+
+There appears to be outliers present in the histogram, but other than this there is a unimodal appearance and no notable skews to the right or left. Looking at the qq-plot there is a large amount of deviance on the right end of the graph, and less on the left.
+
+```{r}
+par(mfrow = c(1,2))
+hist(rstandard(Cov.AR12),main='Standardized Residuals (12,0,0)')
+
+qqnorm(residuals(Cov.AR12), main='Residuals (12,0,0)')
+qqline(residuals(Cov.AR12))
+```
+
+Looking at this plot there appears to be a unimodal histogram with maybe a slight right skew. The qq-plot appears to be normal, but still contains deviations on the right and left ends of the graph. A shapiro-wilk's test is necessary moving forward to obtain a better grasp of the normality of both of these models.
+
+```{r}
+shapiro.test(rstandard(Cov.MA1))
+```
+
+```{r}
+shapiro.test(rstandard(Cov.AR12))
+```
+
+Looking at the p-values we can see that there isn't the statistical support for normality for either model. This makes sense considering what was observed on the histograms and qq-plots.
+
+```{r}
+Normality2 = c('<0.05', '<0.05', 'NA')
+```
+
+#### Independence Tests
+```{r}
+runs(rstandard(Cov.MA1))$pvalue
+```
+
+```{r}
+runs(rstandard(Cov.AR12))$pvalue
+```
+
+Looking at the runs test it can be seen that both models appear to be independent.
+
+```{r}
+Independence2 = c('0.395', '0.722', 'NA')
+```
+
+#### Overall Fit
+```{r}
+tsdiag(Cov.MA1, gof=15, omit.initial=F)
+```
+
+Looking at the Ljing-Box statistic p-values it seems that the MA1 model is a good fit for this data. The only notable thing that was found was the lack of normality in the model.
+
+```{r}
+tsdiag(Cov.AR12, gof=15, omit.initial=F)
+```
+
+Similarly, it can be seen that the AR12 model is also a good fit for the data, but it unfortunately also lacked normality.
+
+```{r}
+Fit2 = c('Good', 'Good', 'NA')
+```
+
+### Trend Models
+Due to the lacking of normality and the appearance of a trend in the untransformed data, a linear model was also performed on the time series.
+```{r}
+Covid.lm = lm(Covid.ts ~ time(Covid.ts))
+summary(Covid.lm)
+```
+
+Looking at the summary of this regression we can see that the time coefficient is approximately equal to 0.5181 and is significant due to the relatively small p-value indicating that this value is unlikely to equal 0. These estimations are done with the least squares method.
+
+```{r}
+plot(NFLX$Open[4434:4724] ~ NFLX$Date[4434:4724], type = 'o', xlab = 'Time in Days(Jan 2020 - Feb 2021)', main = 'Opening Price of Netflix(COVID-19 Pandemic)', ylab = 'Opening Price')
+
+abline(Covid.lm, col = "red", lwd = 3)
+```
+
+```{r}
+summary(Covid.lm)
+```
+
+Based on this summary we can see that all features are significant as mentioned under parameter estimation. It can be seen looking at the adjusted R-squared value that about 80% of the data is represented. 
+
+
+### Final COVID-19 Model
+```{r}
+finMod = data.frame('Models' = Models2, 'AIC' = aic2, 'Norm.Test' = Normality2, 'Ind.Test' = Independence2, 'Overall.Fit' = Fit2)
+finMod
+```
+
+
+While the two time series models that were tested did not end up being normal, they were still good fits for the model. Looking at the possibility of a linear trend for this time series data we could also see 80% of the variance explained in the data, indicating a relatively good fit for the data as well. Moving forward either the MA1(chosen for simplicity over the AR12) or the linear trend could be used for predictions. Knowing that the time series is from stock market opening prices, the MA1 model could be more beneficial in predicting values that are much further away from the data used in the model, this would hopefully track the movement of the data better than the linear model. That being said, the linear model could be used for short term predictions where its unlikely for large deviations from the model.
+
+### Forecasting
+```{r}
+covid.ts = as.ts(Covid.ts)
+cov = stats::arima(covid.ts, order=c(0,2,1))
+
+cov.df = data.frame(time = time(covid.ts), stock = covid.ts)
+
+ggplot(cov.df[225:291, ]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black') +
+  autolayer(forecast(cov), col = "blue", PI = TRUE, show.legend=FALSE) +
+  scale_x_continuous() +
+  scale_y_continuous()
+```
+
+
+```{r}
+NFLX_Covid2 = NFLX[4434:4734, c(1:2)]
+
+cov.df2 = data.frame(time = time(NFLX_Covid2$Date), stock = NFLX_Covid2$Open)
+
+ggplot(cov.df2[225:291, ]) +
+  geom_line(aes(x=time, y=stock), show.legend=TRUE, color = 'black')
+```
+
+Looking at the  forecasted plot it appears that there is a decrease in the stock price that isn't directly accounted for in the predicted values, but the actual value is covered within the confidence intervals still.
+
+$$
+Model~~1:~~Y_t = -9113 + 0.5181(time)
+$$
+$$
+Model~~2:~~Y_t = 2Y_{t-1} -Y_{t-2} + e_t -0.9999e_{t-1}
+$$
+
+
+# Final Conlcusions
+Based on the analysis, it can be seen that an IMA(2,1) model ended up being a decent fit for both partitions of the data. This is interesting considering how far a part these splits were from each other, almost 8 years! Another thing to consider is how different the initial partitions looked from each other, the market crash was appeared to be a typical stock price over time, while during the pandemic there was such an increase a linear model was justifiably fit as well as the time series models. Looking to further this analysis, next steps would be to try and take the whole 20 year period and estimate models and parameters. Specifically seeking to find if an IMA(2,1) model could be fit on the whole time series the past 20 years or if these two partitions were a coincidence.
+
+
+***
+# Links Used
+Links about xts package:<br>
+https://www.datacamp.com/community/blog/r-xts-cheat-sheet
+https://www.geeksforgeeks.org/convert-dataframe-with-date-column-to-time-series-object-in-r/
+
+Links about Netflix:<br>
+https://www.teampay.co/insights/netflix-recession/
+
+
+
+
